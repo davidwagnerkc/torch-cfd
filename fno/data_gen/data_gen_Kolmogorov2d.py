@@ -20,7 +20,7 @@ from torch_cfd.initial_conditions import filtered_velocity_field
 from torch_cfd.spectral import *
 from fno.data_gen.trajectories import get_trajectory_imex
 
-from data_utils import *
+from fno.data_gen.data_utils import *
 
 from fno.pipeline import DATA_PATH, LOG_PATH
 
@@ -176,7 +176,8 @@ def main(args):
                 f"saved variable: {field:<12} | shape: {value.shape} | dtype: {value.dtype}"
             )
             if subsample > 1:
-                result[field] = F.interpolate(value, size=(ns, ns), mode="bilinear")
+                b, c, t, h, w = value.shape
+                result[field] = F.interpolate(value.view(-1, c, h, w), size=(ns, ns), mode="bilinear").view(b, c, t, h, w)
             else:
                 result[field] = value
 

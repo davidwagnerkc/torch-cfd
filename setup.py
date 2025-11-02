@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'torch-cfd',
   packages=find_packages(include=['torch_cfd', 'torch_cfd.*']),
-  version='{{VERSION_PLACEHOLDER}}',
+  version='0.0.0',
   license='Apache-2.0',
   description = 'PyTorch CFD',
   long_description='PyTorch Computational Fluid Dynamics Library',
