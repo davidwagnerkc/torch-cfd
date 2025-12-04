@@ -212,10 +212,13 @@ def get_trajectory_imex(
     velocity can be computed from psi
     (*, 2, n_t, kx, ky) by calling spectral_rot_2d
     """
+    # TODO: Make configurable. Also stream writes.
     w_all = []
     dwdt_all = []
     res_all = []
     psi_all = []
+    u_all = []
+    v_all = []
     w = w0
     n = w0.size(-1)
     tqdm_iters = num_steps if TQDM_ITERS > num_steps else TQDM_ITERS
@@ -244,25 +247,29 @@ def get_trajectory_imex(
                 pb.update(update_every_iters)
 
             if t_step % record_every_steps == 0:
-                _, psi = vorticity_to_velocity(equation.grid, w)
+                (u, v), _ = vorticity_to_velocity(equation.grid, w)
+                # (u_hat, v_hat), psi_hat
                 res = equation.residual(w, dwdt)
 
-                w_, dwdt_, psi, res = [
-                    var.detach().to(dtype).cpu().clone() for var in [w, dwdt, psi, res]
-                ]
+                w_, u, v = [ var.detach().to(dtype).cpu().clone() for var in [w, u, v] ]
+                # w_, dwdt_, psi, res, u, v = [ var.detach().to(dtype).cpu().clone() for var in [w, dwdt, psi, res, u, v] ]
 
                 w_all.append(w_)
-                psi_all.append(psi)
-                dwdt_all.append(dwdt_)
-                res_all.append(res)
-
+                # psi_all.append(psi)
+                # dwdt_all.append(dwdt_)
+                # res_all.append(res)
+                u_all.append(u)
+                v_all.append(v)
     result = {
         var_name: torch.stack(var, dim=-3)
         for var_name, var in zip(
-            ["vorticity", "stream", "vort_t", "residual"],
-            [w_all, psi_all, dwdt_all, res_all],
+            ["vorticity", "u", "v"], # ["vorticity", "stream", "vort_t", "residual", "u", "v"],
+            [w_all, u_all, v_all], # [w_all, psi_all, dwdt_all, res_all, u_all, v_all],
         )
     }
+    result["velocity"] = torch.cat([result["u"], result["v"]], dim=1)
+    del result["u"]
+    del result["v"]
     return result
 
 
