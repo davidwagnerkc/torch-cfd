@@ -219,10 +219,12 @@ def get_trajectory_imex(
     psi_all = []
     u_all = []
     v_all = []
+    time = []
     w = w0
     n = w0.size(-1)
     tqdm_iters = num_steps if TQDM_ITERS > num_steps else TQDM_ITERS
     update_every_iters = num_steps // tqdm_iters
+    physical_time = 0.0
     with tqdm(total=num_steps, disable=not pbar) as pb:
         for t_step in range(num_steps):
             w, dwdt = equation.forward(w, dt=dt)
@@ -260,14 +262,17 @@ def get_trajectory_imex(
                 # res_all.append(res)
                 u_all.append(u)
                 v_all.append(v)
+                time.append(physical_time)
+                physical_time += dt
     result = {
-        var_name: torch.stack(var, dim=-3)
+        var_name: torch.stack(var, dim=1)
         for var_name, var in zip(
             ["vorticity", "u", "v"], # ["vorticity", "stream", "vort_t", "residual", "u", "v"],
             [w_all, u_all, v_all], # [w_all, psi_all, dwdt_all, res_all, u_all, v_all],
         )
     }
-    result["velocity"] = torch.cat([result["u"], result["v"]], dim=1)
+    result["velocity"] = torch.cat([result["u"], result["v"]], dim=2)
+    result["time"] = torch.as_tensor(time)
     del result["u"]
     del result["v"]
     return result
