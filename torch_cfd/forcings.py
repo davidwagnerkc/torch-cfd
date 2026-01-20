@@ -169,6 +169,7 @@ class KolmogorovForcing(ForcingFn):
             wave_number=wave_number,
             **kwargs,
         )
+        self.cached = None
 
     def velocity_eval(
         self,
@@ -176,6 +177,8 @@ class KolmogorovForcing(ForcingFn):
         velocity: Optional[VectorField] = None,
         time: Optional[float] = None,
     ) -> GridVariableVector:
+        if self.cached:
+            return self.cached
         offsets = self.offsets
         grid = self.grid if grid is None else grid
         domain_factor = 2 * torch.pi / self.diam
@@ -196,7 +199,8 @@ class KolmogorovForcing(ForcingFn):
                 grid,
             )
             v = GridVariable(torch.zeros_like(u.data), (1 / 2, 1), grid)
-        return GridVariableVector(tuple((u, v)))
+        self.cached = GridVariableVector(tuple((u, v)))
+        return self.cached 
 
     def vorticity_eval(
         self,
