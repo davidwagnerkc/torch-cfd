@@ -61,6 +61,7 @@ class DataGenConfig:
     Re: float = 1000.0
     grid_size: int = 512             # simulation grid (n x n)
     subsample: int = 8               # saved grid = grid_size // subsample
+    downsample_method: str = "bilinear"  # bilinear | spectral (spectral = ideal low-pass, divergence-free)
     diam: str = "2*torch.pi"
     max_velocity: float = 7.0
     scale: float = 1.0
@@ -109,6 +110,8 @@ def resolve_config(cfg: DictConfig, device: torch.device) -> ResolvedConfig:
     """
     assert cfg.batch_size <= cfg.num_samples, "batch_size must be <= num_samples"
     assert cfg.num_samples % cfg.batch_size == 0, "num_samples must be divisible by batch_size"
+    assert cfg.downsample_method in DOWNSAMPLERS, \
+        f"downsample_method must be one of {sorted(DOWNSAMPLERS)}, got {cfg.downsample_method!r}"
 
     diam = eval(cfg.diam) if isinstance(cfg.diam, str) else cfg.diam
     viscosity = 1.0 / cfg.Re
@@ -141,11 +144,13 @@ def resolve_config(cfg: DictConfig, device: torch.device) -> ResolvedConfig:
 def shard_path(resolved: ResolvedConfig, rank: int) -> Path:
     cfg = resolved.cfg
     N, T, C, H, W = resolved.shape
+    # Re is in the name so a multi-Re sweep sharing one dataset_name coexists in
+    # the same split dir (identical shape across Re would otherwise collide).
     return (
         Path(cfg.out_dir)
         / cfg.dataset_name
         / cfg.split
-        / f"{rank}-ds-{N}-{T}-{C}-{H}-{W}.npy"
+        / f"{rank}-Re{int(cfg.Re)}-ds-{N}-{T}-{C}-{H}-{W}.npy"
     )
 
 
@@ -172,12 +177,43 @@ def shard_metadata(resolved: ResolvedConfig, rank: int) -> dict:
 
 
 @torch.compile(mode="reduce-overhead")
-def spatial_downsample(vort_hat, nse, ns):
+def _downsample_bilinear(vort_hat, nse, ns):
+    """Bilinear interpolation of the full-res velocity. Fast, but does not
+    preserve incompressibility and aliases sub-grid scales onto the coarse grid."""
     (u_hat, v_hat), _ = vorticity_to_velocity(nse.grid, vort_hat, (nse.kx, nse.ky))
     u, v = fft.irfft2(u_hat), fft.irfft2(v_hat)
     velocity = torch.cat([u, v], dim=1)
-    velocity = F.interpolate(velocity, size=(ns, ns), mode="bilinear")
-    return velocity
+    return F.interpolate(velocity, size=(ns, ns), mode="bilinear")
+
+
+def _truncate_to_grid(field_hat, ns):
+    """rfft2 spectrum on an n x n grid -> real field on an ns x ns grid, keeping
+    only |k| < ns/2. Rescaled by (ns/n)^2 for the smaller inverse-FFT norm.
+
+    On a 2*pi box the wavenumber for a given mode index is the same integer on
+    both grids, so a divergence-free spectrum stays divergence-free after truncation.
+    The Nyquist band (k = +/- ns/2) is dropped: keeping only one of each conjugate
+    pair would otherwise reintroduce a small divergence at the grid scale.
+    """
+    n = field_hat.shape[-2]
+    half, nsh = ns // 2, ns // 2 + 1
+    low = field_hat[..., : half + 1, :nsh]          # ky = 0 .. ns/2
+    high = field_hat[..., n - half + 1 :, :nsh]     # ky = -(ns/2 - 1) .. -1
+    coarse = torch.cat([low, high], dim=-2) * (ns / n) ** 2
+    keep_row = (torch.arange(ns, device=coarse.device) != half).view(ns, 1)
+    keep_col = (torch.arange(nsh, device=coarse.device) != half).view(1, nsh)
+    return fft.irfft2(coarse * keep_row * keep_col, s=(ns, ns))
+
+
+@torch.compile(mode="reduce-overhead")
+def _downsample_spectral(vort_hat, nse, ns):
+    """Ideal low-pass: truncate the velocity spectrum to the coarse grid's modes.
+    No aliasing, and the saved field stays divergence-free (unlike bilinear)."""
+    (u_hat, v_hat), _ = vorticity_to_velocity(nse.grid, vort_hat, (nse.kx, nse.ky))
+    return torch.cat([_truncate_to_grid(u_hat, ns), _truncate_to_grid(v_hat, ns)], dim=1)
+
+
+DOWNSAMPLERS = {"bilinear": _downsample_bilinear, "spectral": _downsample_spectral}
 
 
 def build_simulation(resolved: ResolvedConfig, rank: int):
@@ -242,6 +278,7 @@ def generate(resolved: ResolvedConfig, rank: int):
     )
 
     nse, vort_hat = build_simulation(resolved, rank)
+    downsample = DOWNSAMPLERS[cfg.downsample_method]
 
     for _ in tqdm(range(resolved.warmup_steps), disable=cfg.no_tqdm, desc="warmup"):
         vort_hat = nse(vort_hat, dt).clone()
@@ -249,7 +286,7 @@ def generate(resolved: ResolvedConfig, rank: int):
     for t_idx in tqdm(range(resolved.num_snapshots), disable=cfg.no_tqdm, desc="trajectory"):
         for _ in range(cfg.record_every_steps):
             vort_hat = nse(vort_hat, dt).clone()
-        yield t_idx, spatial_downsample(vort_hat, nse, ns=resolved.ns)
+        yield t_idx, downsample(vort_hat, nse, ns=resolved.ns)
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -287,23 +324,29 @@ def main(cfg: DictConfig) -> None:
         estimate_runtime(
             resolved, ranks,
             build_simulation=build_simulation,
-            spatial_downsample=spatial_downsample,
+            spatial_downsample=DOWNSAMPLERS[cfg.downsample_method],
         )
         return
 
     if cfg.mode != "generate":
         raise ValueError(f"unknown mode {cfg.mode!r} (expected generate | dry_run | estimate)")
 
+    # Fail early before any compute: never overwrite existing shards.
+    targets = [shard_path(resolved, rank) for rank in ranks]
+    existing = [p for p in targets if p.exists()]
+    if existing and not cfg.force_rerun:
+        listing = "\n".join(f"  {p}" for p in existing)
+        raise SystemExit(
+            f"Refusing to overwrite {len(existing)} existing shard(s):\n{listing}\n"
+            f"Pass force_rerun=true to overwrite."
+        )
+
     print(
         f"Split '{cfg.split}': {num_batches} shard(s) of {cfg.batch_size} samples | "
         f"generating rank(s) {ranks} on {device}"
     )
 
-    for rank in ranks:
-        path = shard_path(resolved, rank)
-        if path.exists() and not cfg.force_rerun:
-            print(f"Shard {path} already exists, skipping")
-            continue
+    for rank, path in zip(ranks, targets):
         path.parent.mkdir(parents=True, exist_ok=True)
         np_mm = np.memmap(path, mode="write", dtype=np.float32, shape=resolved.shape)
         for t_idx, u in generate(resolved, rank):

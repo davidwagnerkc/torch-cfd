@@ -31,26 +31,28 @@ def load(path, *, device=None):
 
 
 def _kgrid(h, w, device, L=TWO_PI):
-    """rfft2 wavenumbers: kx along the last axis (W), ky along H. Integers on a 2*pi box."""
-    ky = TWO_PI * fft.fftfreq(h, d=L / h, device=device)
-    kx = TWO_PI * fft.rfftfreq(w, d=L / w, device=device)
-    return kx.view(1, 1, 1, -1), ky.view(1, 1, -1, 1)
+    """rfft2 wavenumbers (integers on a 2*pi box). The saved field pairs channel 0
+    with the row axis and channel 1 with the column axis -- verified by the fact
+    that that pairing is the divergence-free one -- so the derivatives below match."""
+    k_row = (TWO_PI * fft.fftfreq(h, d=L / h, device=device)).view(1, 1, -1, 1)   # axis -2
+    k_col = (TWO_PI * fft.rfftfreq(w, d=L / w, device=device)).view(1, 1, 1, -1)  # axis -1
+    return k_row, k_col
 
 
 def vorticity(u, v, L=TWO_PI):
-    """omega = dv/dx - du/dy for u, v of shape (..., H, W)."""
+    """omega = dv/dx - du/dy  (x = column axis, y = row axis); u, v are (..., H, W)."""
     h, w = u.shape[-2:]
-    kx, ky = _kgrid(h, w, u.device, L)
+    k_row, k_col = _kgrid(h, w, u.device, L)
     uh, vh = fft.rfft2(u), fft.rfft2(v)
-    return fft.irfft2(1j * kx * vh - 1j * ky * uh, s=(h, w))
+    return fft.irfft2(1j * k_row * vh - 1j * k_col * uh, s=(h, w))
 
 
 def divergence(u, v, L=TWO_PI):
-    """div = du/dx + dv/dy; ~0 for an incompressible field (downsampling adds a little)."""
+    """div = du/dx + dv/dy; ~0 for the incompressible field (bilinear downsample adds some)."""
     h, w = u.shape[-2:]
-    kx, ky = _kgrid(h, w, u.device, L)
+    k_row, k_col = _kgrid(h, w, u.device, L)
     uh, vh = fft.rfft2(u), fft.rfft2(v)
-    return fft.irfft2(1j * kx * uh + 1j * ky * vh, s=(h, w))
+    return fft.irfft2(1j * k_row * uh + 1j * k_col * vh, s=(h, w))
 
 
 def energy_spectrum(u, v, L=TWO_PI):
@@ -253,7 +255,7 @@ def summary(data, s):
         "mean enstrophy": round(float(s["enstrophy"].mean()), 4),
         "peak speed (max)": round(float(s["peak_speed"].max()), 4),
         "divergence RMS (median)": round(float(np.median(s["divergence_rms"])), 4),
-        # ~1 means the saved field is far from incompressible (bilinear downsample)
+        # fraction of vorticity scale: bilinear downsample leaves a few %, spectral ~0
         "divergence/vorticity": round(
             float(np.median(s["divergence_rms"]) / np.sqrt(2 * np.median(s["enstrophy"]))), 3
         ),
