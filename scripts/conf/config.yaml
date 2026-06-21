@@ -1,0 +1,6 @@
+# Base entrypoint. The DataGenConfig dataclass (registered as `base_config`)
+# is the single source of default values; this file just composes the schema.
+# Run a concrete dataset with e.g. `--config-name 2dk_Re1k_test`.
+defaults:
+  - base_config
+  - _self_

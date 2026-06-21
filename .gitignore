@@ -164,6 +164,10 @@ cython_debug/
 *.pth
 *.pkl
 
+# hydra run artifacts
+outputs/
+multirun/
+
 # mac os
 .DS_Store
 *.code-workspace
