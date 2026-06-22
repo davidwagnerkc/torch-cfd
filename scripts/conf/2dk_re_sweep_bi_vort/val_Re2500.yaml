@@ -1,0 +1,21 @@
+# @package _global_
+# Kolmogorov 2D Re sweep (div-free bilinear) -- val split, Re=2500.
+# Part of dataset '2dk_re_sweep_bi_vort'; every split/Re shares that name and combines per
+# split (shards are Re-tagged so they coexist). Seed is unique to this file.
+defaults:
+  - /base_config
+  - _self_
+
+split: val
+dataset_name: 2dk_re_sweep_bi_vort
+seed: 2000006000
+
+num_samples: 16
+batch_size: 16
+
+grid_size: 512
+subsample: 8
+Re: 2500
+
+time_warmup: 4.5
+time: 20.0

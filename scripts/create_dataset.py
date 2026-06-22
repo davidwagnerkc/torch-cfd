@@ -61,7 +61,7 @@ class DataGenConfig:
     Re: float = 1000.0
     grid_size: int = 512             # simulation grid (n x n)
     subsample: int = 8               # saved grid = grid_size // subsample
-    downsample_method: str = "bilinear"  # bilinear | spectral (spectral = ideal low-pass, divergence-free)
+    downsample_method: str = "bilinear"  # bilinear | spectral -- both divergence-free; spectral also alias-free
     diam: str = "2*torch.pi"
     max_velocity: float = 7.0
     scale: float = 1.0
@@ -176,14 +176,34 @@ def shard_metadata(resolved: ResolvedConfig, rank: int) -> dict:
     }
 
 
+def _velocity_from_vorticity(omega):
+    """Reconstruct velocity from a (coarse) scalar vorticity via the streamfunction:
+    psi_hat = omega_hat / |k|^2, then u = d psi/dx, v = -d psi/dy. div(u) is the divergence of
+    a curl == 0 *identically*, so any velocity built this way is divergence-free regardless of
+    how omega was produced. Integer wavenumbers on the 2*pi box; same (channel 0 = row-paired)
+    convention as vorticity_to_velocity, so it matches the existing saved-field layout."""
+    h, w = omega.shape[-2:]
+    kr = fft.fftfreq(h, d=1.0 / h, device=omega.device).view(1, 1, -1, 1)
+    kc = fft.rfftfreq(w, d=1.0 / w, device=omega.device).view(1, 1, 1, -1)
+    k2 = kr ** 2 + kc ** 2
+    k2[..., 0, 0] = 1.0                       # avoid 0/0 at the mean mode (zeroed just below)
+    psi = fft.rfft2(omega) / k2
+    psi[..., 0, 0] = 0.0                       # mean velocity is undetermined by vorticity -> 0
+    u = fft.irfft2(1j * kc * psi, s=(h, w))
+    v = fft.irfft2(-1j * kr * psi, s=(h, w))
+    return torch.cat([u, v], dim=1)
+
+
 @torch.compile(mode="reduce-overhead")
 def _downsample_bilinear(vort_hat, nse, ns):
-    """Bilinear interpolation of the full-res velocity. Fast, but does not
-    preserve incompressibility and aliases sub-grid scales onto the coarse grid."""
-    (u_hat, v_hat), _ = vorticity_to_velocity(nse.grid, vort_hat, (nse.kx, nse.ky))
-    u, v = fft.irfft2(u_hat), fft.irfft2(v_hat)
-    velocity = torch.cat([u, v], dim=1)
-    return F.interpolate(velocity, size=(ns, ns), mode="bilinear")
+    """Bilinear down-sampling applied to VORTICITY, then velocity reconstructed from the coarse
+    vorticity. The reconstruction makes the saved field divergence-free (div of a curl == 0),
+    even though bilinear still aliases the vorticity spectrum -- divergence-free and alias-free
+    are independent axes (see downsample_eval.ipynb). Fast; use `spectral` if you also need a
+    faithful spectrum or a super-resolution target."""
+    omega = fft.irfft2(vort_hat)
+    omega = F.interpolate(omega, size=(ns, ns), mode="bilinear")
+    return _velocity_from_vorticity(omega)
 
 
 def _truncate_to_grid(field_hat, ns):
