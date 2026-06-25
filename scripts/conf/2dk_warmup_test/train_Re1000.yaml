@@ -1,0 +1,25 @@
+# @package _global_
+# 2dk_warmup_test -- train, Re=1000. 32 trajectories x 55s, warmup 42s.
+#
+# The ONLY difference vs the 2dk_re_sweep_spectral tr1k train is the warmup (42s vs 4.5s):
+# same seed/batch/Re/length/downsample, so the 32 ICs are identical -> a clean warmup A/B.
+# Train base @1M/@10M here and compare to the spectral tr1k ladder (warmup 4.5: 4.64 / 4.63 @Re1k).
+# Validation = symlink the 2dk_re_sweep_spectral val (same 4 anchors) so t80 is comparable.
+defaults:
+  - /base_config
+  - _self_
+
+split: train
+dataset_name: 2dk_warmup_test
+seed: 1601810600
+
+num_samples: 32
+batch_size: 16
+
+grid_size: 512
+subsample: 8
+Re: 1000
+
+time_warmup: 42.0
+time: 55.0
+downsample_method: spectral
