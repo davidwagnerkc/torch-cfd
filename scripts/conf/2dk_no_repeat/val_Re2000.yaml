@@ -1,0 +1,21 @@
+# @package _global_
+# 2dk_no_repeat -- val split, Re=2000. IDENTICAL to the 2dk_re_sweep_spectral val (same seed,
+# warmup, length, spectral downsample) so t80 is directly comparable to the spectral baseline.
+defaults:
+  - /base_config
+  - _self_
+
+split: val
+dataset_name: 2dk_no_repeat
+seed: 2000004000
+
+num_samples: 16
+batch_size: 16
+
+grid_size: 512
+subsample: 8
+Re: 2000
+
+time_warmup: 4.5
+time: 20.0
+downsample_method: spectral

@@ -1,0 +1,30 @@
+# @package _global_
+# 2dk_no_repeat -- train split, Re=1000 (tr1k only; this dataset is large).
+#
+# 1280 trajectories x 55s so a 10M-sample training budget is ~1 epoch with ZERO repeats:
+#   1280 * (7843 - 16) = 10,018,560 unique (u_prev, u_t) step-16 windows ~= 10.0M.
+# Lets us train base @1M and @10M with no sample repetition -> isolates how much of the
+# refiner's edge is regularization / data-augmentation vs genuine physics modeling.
+#
+# Identical generation recipe to 2dk_re_sweep_spectral train (warmup 4.5s, spectral, seed
+# 1601810600, batch_size 16) but 1280 trajectories instead of 32 -- so the first 32 ICs ARE the
+# spectral tr1k train, making this a strict 40x extension of it. (Warmup-length effect to be
+# tested separately on a small dedicated dataset.)
+defaults:
+  - /base_config
+  - _self_
+
+split: train
+dataset_name: 2dk_no_repeat
+seed: 1601810600
+
+num_samples: 1280
+batch_size: 16
+
+grid_size: 512
+subsample: 8
+Re: 1000
+
+time_warmup: 4.5
+time: 55.0
+downsample_method: spectral
