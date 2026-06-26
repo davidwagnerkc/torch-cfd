@@ -1,0 +1,18 @@
+# @package _global_
+# 2dk_spectral_w45 -- train split, Re=8000. Multi-Re, properly-warmed (45s) alias-free spectral baseline.
+# 320 traj x 55s => 320*(7843-16) ~= 2.5M unique step-16 windows per Re; 4 Re => ~10M total
+# (10x the original ~32-traj/Re spectral baseline). Stationary attractor (45s ~= 4 drag-times).
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_spectral_w45
+seed: 1700003000
+num_samples: 320
+batch_size: 16
+grid_size: 512
+subsample: 8
+Re: 8000
+time_warmup: 45.0
+time: 55.0
+downsample_method: spectral

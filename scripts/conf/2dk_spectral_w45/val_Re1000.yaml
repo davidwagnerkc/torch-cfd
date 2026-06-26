@@ -1,0 +1,16 @@
+# @package _global_
+# 2dk_spectral_w45 -- val split, Re=1000. 45s warmup (stationary, matches train), 20s length, 128 traj (up from 16).
+defaults:
+  - /base_config
+  - _self_
+split: val
+dataset_name: 2dk_spectral_w45
+seed: 1700010000
+num_samples: 128
+batch_size: 16
+grid_size: 512
+subsample: 8
+Re: 1000
+time_warmup: 45.0
+time: 20.0
+downsample_method: spectral
