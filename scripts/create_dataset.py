@@ -56,6 +56,8 @@ class DataGenConfig:
     num_samples: int = 16            # total samples across all ranks
     batch_size: int = 16             # samples per rank / shard
     seed: int = 0                    # base seed for this split; keep splits disjoint
+    rank_start: int = 0              # split-gen: first rank this process owns (shards named by rank -> disjoint per node)
+    rank_count: int = 0              # split-gen: number of ranks to generate here (0 = all num_samples//batch_size)
 
     # physics
     Re: float = 1000.0
@@ -72,6 +74,7 @@ class DataGenConfig:
     time: float = 20.0               # trajectory length, recorded
     time_warmup: float = 4.5         # warmup length, discarded
     record_every_steps: int = 8      # save a snapshot every N solver steps
+    save_ic512: bool = True          # also save the post-warmup full-res (grid^2) velocity IC per shard (-> train/ic512/)
 
     # runtime
     mode: str = "generate"           # generate | dry_run | estimate
@@ -303,6 +306,14 @@ def generate(resolved: ResolvedConfig, rank: int):
     for _ in tqdm(range(resolved.warmup_steps), disable=cfg.no_tqdm, desc="warmup"):
         vort_hat = nse(vort_hat, dt).clone()
 
+    if cfg.save_ic512:  # post-warmup stationary state at full (grid^2) resolution -> restart/extend without re-warming
+        ic = downsample(vort_hat, nse, ns=cfg.grid_size).detach().cpu().numpy()  # (batch, 2, grid, grid) velocity
+        ic_dir = shard_path(resolved, rank).parent / "ic512"
+        ic_dir.mkdir(parents=True, exist_ok=True)
+        ic_path = ic_dir / f"{rank}-Re{int(cfg.Re)}-ic512-{cfg.batch_size}-2-{cfg.grid_size}-{cfg.grid_size}.npy"
+        np.save(ic_path, ic)
+        print(f"  saved post-warmup {cfg.grid_size}^2 velocity IC -> {ic_path.name}", flush=True)
+
     for t_idx in tqdm(range(resolved.num_snapshots), disable=cfg.no_tqdm, desc="trajectory"):
         for _ in range(cfg.record_every_steps):
             vort_hat = nse(vort_hat, dt).clone()
@@ -324,6 +335,8 @@ def main(cfg: DictConfig) -> None:
     rank_env = os.environ.get("RANK")
     if rank_env is not None:
         ranks = [int(rank_env)]  # parallel: this process owns one shard
+    elif cfg.rank_count:
+        ranks = list(range(cfg.rank_start, cfg.rank_start + cfg.rank_count))  # split-gen: a contiguous rank subset (this node's share)
     else:
         ranks = list(range(num_batches))  # sequential: one process, all shards
 
