@@ -1,0 +1,21 @@
+# @package _global_
+# 2dk_25M_tr1k -- train split, Re=1000 only. 45s-warmup spectral, 55s trajectories.
+# 3200 traj x 55s => 3200*(7843-16) = 25.05M unique step-16 windows -- 10x the w45 Re1k train and
+# 2.5x the deleted 10M no_repeat, but at the CORRECT 45s warmup (stationary attractor).
+# TRAIN-ONLY: reuses the 2dk_spectral_w45 val_Re1000 (128 traj, seed 1700010000).
+# Seed 1700000000 == the w45 train seed, so the first 320 traj ARE the w45 train (strict superset);
+# train seeds span [1.7e9, 1.7e9+3200), disjoint from the val base 1.7e9+10000 -> no train/val leak.
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_25M_tr1k
+seed: 1700000000
+num_samples: 3200
+batch_size: 16
+grid_size: 512
+subsample: 8
+Re: 1000
+time_warmup: 45.0
+time: 55.0
+downsample_method: spectral
