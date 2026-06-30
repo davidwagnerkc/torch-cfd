@@ -4,6 +4,7 @@
 # lr 8e-4 / bs64, 4-Re val (Re1k in-dist + 2k/4k/8k OOD via the symlinked w45 val). n=1.
 set -u
 cd /home/david-wagner/git/research || exit 1
+export PATH="$HOME/.local/bin:$PATH"   # uv lives in ~/.local/bin (non-login ssh shell drops it -> rc=127 on beta)
 MODEL="$1"; REFINER="$2"
 RUN=/scratch/dwcgt/run/simple
 LOG=/scratch/dwcgt/bivort_logs/ladder_25m_${MODEL}.log
