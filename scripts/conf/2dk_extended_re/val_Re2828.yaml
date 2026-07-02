@@ -1,0 +1,20 @@
+# @package _global_
+# 2dk_extended_re -- val-only wide-Re extension of 2dk_spectral_w45 (grid Re_j = 500*2^(j/4), this is j=10).
+# Anchors 1k/2k/4k/8k reuse the existing w45 128-traj vals; identical recipe otherwise
+# (45s stationary warmup, 20s span, 512^2 spectral solver, alias-free spectral downsample x8).
+# Seed block 1700100000 + j*1000: disjoint from w45 train (17000000xx-17000032xx) and val (170001x000).
+defaults:
+  - /base_config
+  - _self_
+split: val
+dataset_name: 2dk_extended_re
+seed: 1700110000
+num_samples: 128
+batch_size: 16
+grid_size: 512
+subsample: 8
+Re: 2828
+time_warmup: 45.0
+time: 20.0
+downsample_method: spectral
+save_ic512: true
