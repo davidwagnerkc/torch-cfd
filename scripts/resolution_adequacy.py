@@ -88,6 +88,7 @@ def exact_moments(w_hat, n, kcuts=(32, 64, 128, 256)):
     m2, m4 = (w ** 2).mean((-1, -2)), (w ** 4).mean((-1, -2))
     out = dict(m2=m2, m4=m4, flatness=m4 / m2 ** 2,
                ens=p.sum((-1, -2)), pal=(p * k2).sum((-1, -2)))
+    out["pal_over_ens2"] = out["pal"] / out["ens"] ** 2
     for kk in kcuts:
         m = k2.sqrt() > kk
         out[f"ens_above{kk}"] = (p * m).sum((-1, -2)) / out["ens"]
@@ -134,10 +135,12 @@ def main():
             acc += shell_moments(w, n, nbin)
             mom.append(exact_moments(w, n))
         E = (acc / a.n_snap).cpu().numpy()                     # (batch, nbin)
-        M = {k: np.mean([m[k] for m in mom], 0) for k in mom[0]}     # time-mean, per IC
-        res[n] = dict(E=E.tolist(), dt=dt, warmup_steps=wsteps, every=every,
+        S = {k: np.stack([m[k] for m in mom]) for k in mom[0]}        # (n_snap, batch) raw samples
+        M = {k: v.mean(0) for k, v in S.items()}                      # time-mean, per IC
+        # error bar: sem over ICs of the time-mean (ICs are independent; snapshots are not)
+        res[n] = dict(E=E.tolist(), dt=dt, warmup_steps=wsteps, every=every, batch=a.batch,
                       moments={k: v.tolist() for k, v in M.items()},
-                      moments_sd={k: float(np.std(v)) for k, v in M.items()},
+                      moments_sem={k: float(np.std(v, ddof=1) / np.sqrt(len(v))) for k, v in M.items()},
                       wall_s=time.time() - t0)
         print(f"  done in {time.time()-t0:.0f}s", flush=True)
         del nse, w
@@ -160,14 +163,18 @@ def main():
     def M(n, k):
         return float(np.mean(res[n]["moments"][k]))
 
-    print("  --- exact scalars (TRUE |k|, no shell rounding) ---")
-    rowfmt("enstrophy  <w^2>/2", lambda n: M(n, "ens") / 2)
-    rowfmt("PALINSTROPHY  <|grad w|^2>/2", lambda n: M(n, "pal") / 2)
-    rowfmt("vorticity flatness <w4>/<w2>^2", lambda n: M(n, "flatness"))
-    rowfmt("  flatness sd across ICs", lambda n: res[n]["moments_sd"]["flatness"])
+    def pm(n, k, scale=1.0):
+        return f"{M(n, k)*scale:.5g} +- {res[n]['moments_sem'][k]*scale:.3g}"
+
+    print("  --- exact scalars (TRUE |k|, no shell rounding); value +- sem over ICs ---")
+    prow = lambda nm, k, sc=1.0: print(f"{nm:34s} " + " ".join(f"{pm(n, k, sc):>22s}" for n in ns))
+    prow("enstrophy  <w^2>/2", "ens", 0.5)
+    prow("PALINSTROPHY  <|grad w|^2>/2", "pal", 0.5)
+    prow("vorticity flatness <w4>/<w2>^2", "flatness")
+    prow("palinstrophy / enstrophy^2", "pal_over_ens2")
     for kc in (32, 64, 128, 256):
-        rowfmt(f"frac enstrophy above k={kc}", lambda n, kc=kc: M(n, f"ens_above{kc}"))
-        rowfmt(f"frac palinstrophy above k={kc}", lambda n, kc=kc: M(n, f"pal_above{kc}"))
+        prow(f"frac enstrophy above k={kc}", f"ens_above{kc}")
+        prow(f"frac palinstrophy above k={kc}", f"pal_above{kc}")
     print("  --- shell-binned (for the band table below) ---")
     rowfmt("KE  sum E(k)", lambda n: tot(n, 0))
     rowfmt("enstrophy  sum k^2 E(k)", lambda n: tot(n, 2))
