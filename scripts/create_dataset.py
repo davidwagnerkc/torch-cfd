@@ -236,7 +236,63 @@ def _downsample_spectral(vort_hat, nse, ns):
     return torch.cat([_truncate_to_grid(u_hat, ns), _truncate_to_grid(v_hat, ns)], dim=1)
 
 
-DOWNSAMPLERS = {"bilinear": _downsample_bilinear, "spectral": _downsample_spectral}
+def _macface(u, factor):
+    """jax-cfd `resize.downsample_staggered_velocity_component`, per velocity component.
+
+    Component 0 (u) has normal axis -2 (= x, our convention), component 1 (v) normal axis -1.
+    Decimate along the component's OWN (normal) axis at offset factor-1 with NO filter, then
+    block-average `factor` cells along the tangential axis. Its stated purpose upstream is
+    preserving the discrete MAC divergence, not anti-aliasing.
+    """
+    out = []
+    for j in (0, 1):
+        x = u[..., j:j + 1, :, :]
+        dax, tax = (-2, -1) if j == 0 else (-1, -2)
+        x = x.index_select(dax, torch.arange(factor - 1, x.shape[dax], factor, device=x.device))
+        x = x.unfold(tax, factor, factor).mean(-1)
+        out.append(x)
+    return torch.cat(out, dim=-3)
+
+
+def _to_mac_faces(u_hat, v_hat, n):
+    """Half-cell spectral shift of a COLLOCATED velocity onto MAC faces: u -> +dx/2 in x,
+    v -> +dy/2 in y. On a 2*pi box with integer wavenumbers a shift of +dx/2 = +pi/n is the
+    phase exp(i*pi*k/n). Exact, and it makes `_macface` preserve the MAC discrete divergence
+    the way it does in the jax-cfd pipeline."""
+    kr = fft.fftfreq(n, d=1.0 / n, device=u_hat.device).view(1, 1, -1, 1)
+    kc = fft.rfftfreq(n, d=1.0 / n, device=u_hat.device).view(1, 1, 1, -1)
+    return u_hat * torch.exp(1j * torch.pi * kr / n), v_hat * torch.exp(1j * torch.pi * kc / n)
+
+
+def _downsample_macface(vort_hat, nse, ns, stagger=True):
+    """Reproduce the jax-cfd / TSM-PDE FVM coarse-graining ON SPECTRAL DATA.
+
+    This is the parameter-free causal test of SOLVER_DIFFICULTY.md: the FVM 64^2 benchmark
+    differs from ours because of the coarse-graining OPERATOR, so coarsening the same spectral
+    flow this way should move its difficulty toward the FVM benchmark's.
+
+    In closed form the operator is an ANISOTROPIC tangential low-pass -- a non-folding mode is
+    attenuated by the Dirichlet kernel sin(pi k_t r/N)/(r sin(pi k_t/N)) in the TANGENTIAL
+    wavenumber only -- plus ~19% aliased content in the near-Nyquist band.
+
+    ⚠ The resulting field is NOT spectrally divergence-free (that is the point: neither is the
+    FVM target). Score models trained on it RAW, or with proj_convention=mac -- the spectral
+    Leray projection is invalid here, exactly as for `original_dataset` (V2_RESULTS §fvm).
+    """
+    (u_hat, v_hat), _ = vorticity_to_velocity(nse.grid, vort_hat, (nse.kx, nse.ky))
+    n = vort_hat.shape[-2]
+    if stagger:
+        u_hat, v_hat = _to_mac_faces(u_hat, v_hat, n)
+    u = torch.cat([fft.irfft2(u_hat, s=(n, n)), fft.irfft2(v_hat, s=(n, n))], dim=1)
+    return _macface(u, n // ns)
+
+
+def _downsample_macface_collocated(vort_hat, nse, ns):
+    return _downsample_macface(vort_hat, nse, ns, stagger=False)
+
+
+DOWNSAMPLERS = {"bilinear": _downsample_bilinear, "spectral": _downsample_spectral,
+                "macface": _downsample_macface, "macface_collocated": _downsample_macface_collocated}
 
 
 def build_simulation(resolved: ResolvedConfig, rank: int):

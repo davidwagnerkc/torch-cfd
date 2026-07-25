@@ -1,0 +1,29 @@
+# @package _global_
+# 2dk_macface_tr1k -- the CAUSAL TEST of SOLVER_DIFFICULTY.md, train split, Re=1000.
+#
+# IDENTICAL to 2dk_sub1M_tr1k in every respect except `downsample_method`: same solver, same
+# physics, same 45 s warmup, same 55 s trajectories, and the SAME SEEDS (1700000000 + 0..127),
+# so it is the *same 128 flows* observed through the jax-cfd/TSM-PDE MAC face-average instead
+# of an ideal spectral truncation. Any difficulty difference is therefore 100% the operator --
+# no solver, no Re, no data-budget, no seed confound.
+#
+# Predicted (SOLVER_DIFFICULTY T3): per-band enstrophy retention 0.993/0.977/0.940/0.887/0.818/
+# 0.749/0.675/0.684 for k1-4..k29-32 and ~19% aliased content in the near-Nyquist band, matching
+# the real 2048^2 FVM target to <=0.03 per band.
+#
+# ⚠ The output is NOT spectrally divergence-free (neither is the FVM target). Score RAW, or with
+# proj_convention=mac; the spectral Leray projection is INVALID on this data (V2_RESULTS §fvm).
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_macface_tr1k
+seed: 1700000000
+num_samples: 128
+batch_size: 16
+grid_size: 512
+subsample: 8
+Re: 1000
+time_warmup: 45.0
+time: 55.0
+downsample_method: macface
