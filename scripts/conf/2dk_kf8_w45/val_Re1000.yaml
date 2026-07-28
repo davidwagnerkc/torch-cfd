@@ -1,0 +1,18 @@
+# @package _global_
+# 2dk_kf8_w45 -- val split, Re=1000, peak_wavenumber=8. Mirrors 2dk_spectral_w45 val recipe:
+# 45s warmup, 20s length, 128 traj. Same certification caveats as the train config.
+defaults:
+  - /base_config
+  - _self_
+split: val
+dataset_name: 2dk_kf8_w45
+seed: 1700210000
+num_samples: 128
+batch_size: 16
+grid_size: 512
+subsample: 8
+Re: 1000
+peak_wavenumber: 8
+time_warmup: 45.0
+time: 20.0
+downsample_method: spectral

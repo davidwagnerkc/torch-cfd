@@ -1,0 +1,29 @@
+# @package _global_
+# 2dk_kf8_w45 -- train split, Re=1000, peak_wavenumber=8 (forcing moved from k=4 to k=8).
+# Everything else = the w45/25M recipe: 45s warmup, 55s trajectories, 512^2 spectral -> 64^2.
+# 128 traj x (7843-16) = 1.00M unique step-16 windows (the "sub1M-scale" corpus at k_f=8).
+#
+# ⚠ NOT YET CERTIFIED -- three things to verify BEFORE trusting generated data (see
+#   KF8_NOTES in the research repo / session log 2026-07-28):
+#   1. STATIONARITY: 45s warmup was measured for k_f=4. k_f=8 has 3 octaves of inverse
+#      range; large-scale equilibration against drag=0.1 may be slower (condensate risk,
+#      Tran-Bowman quasisteady trap). Run a warmup probe (2dk_warmup_test pattern) first.
+#   2. CFL: dt derives from max_velocity=7.0 (assumed, not realized). Verify realized
+#      |u|_max at k_f=8 stays <= 7.0 during warmup probe; raise max_velocity if not.
+#   3. Re LABEL: nominal Re=1000 keeps nu=1e-3; the FORCING-SCALE Reynolds number halves
+#      (L_f = 2pi/8). Comparisons to k_f=4 cells are at matched nu, NOT matched Re_f.
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_kf8_w45
+seed: 1700200000
+num_samples: 128
+batch_size: 16
+grid_size: 512
+subsample: 8
+Re: 1000
+peak_wavenumber: 8
+time_warmup: 45.0
+time: 55.0
+downsample_method: spectral
