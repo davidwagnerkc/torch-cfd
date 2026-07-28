@@ -1,0 +1,19 @@
+# @package _global_
+# 2dk_128test -- SMALL 128^2 test corpus for dataloader benchmarking (16 traj x 55s, w45
+# recipe, k_f=4, Re1000). subsample=4 => saved grid 128^2. ~16 GB. The 64^2 twin for the
+# benchmark baseline is DERIVED offline by exact spectral truncation (composition property),
+# not re-generated. Seeds 17003xxxxx: disjoint from train/val/extended_re/kf8 streams.
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_128test
+seed: 1700300000
+num_samples: 16
+batch_size: 16
+grid_size: 512
+subsample: 4
+Re: 1000
+time_warmup: 45.0
+time: 55.0
+downsample_method: spectral
