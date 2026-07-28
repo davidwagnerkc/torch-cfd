@@ -41,12 +41,16 @@ def aggregate(items, snapshot_dt, out):
         arr = np.memmap(p, mode="r", dtype=np.float32, shape=shp)
         velocity[off:off + n].copy_(torch.from_numpy(arr))
         Re[off:off + n] = float(m["config"]["Re"])
-        r = velocity[off:off + n, RESIDUAL_STRIDE:] - velocity[off:off + n, :-RESIDUAL_STRIDE]
-        r_sum += r.sum(dtype=torch.float64).item()
-        r_sumsq += r.square().sum(dtype=torch.float64).item()
-        r_cnt += r.numel()
+        # residual stats per-trajectory: a whole-shard temporary is ~shard-sized (16 GB at
+        # 128^2) and OOM-killed the 2dk_128test aggregate; chunking bounds it at ~1 GB.
+        for j in range(n):
+            r = velocity[off + j, RESIDUAL_STRIDE:] - velocity[off + j, :-RESIDUAL_STRIDE]
+            r_sum += r.sum(dtype=torch.float64).item()
+            r_sumsq += r.square().sum(dtype=torch.float64).item()
+            r_cnt += r.numel()
+            del r
         off += n
-        del arr, r
+        del arr
 
     std_residual = max(0.0, r_sumsq / r_cnt - (r_sum / r_cnt) ** 2) ** 0.5
     ds_write = {
