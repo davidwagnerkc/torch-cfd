@@ -3,15 +3,17 @@
 # Everything else = the w45/25M recipe: 45s warmup, 55s trajectories, 512^2 spectral -> 64^2.
 # 128 traj x (7843-16) = 1.00M unique step-16 windows (the "sub1M-scale" corpus at k_f=8).
 #
-# ⚠ NOT YET CERTIFIED -- three things to verify BEFORE trusting generated data (see
-#   KF8_NOTES in the research repo / session log 2026-07-28):
-#   1. STATIONARITY: 45s warmup was measured for k_f=4. k_f=8 has 3 octaves of inverse
-#      range; large-scale equilibration against drag=0.1 may be slower (condensate risk,
-#      Tran-Bowman quasisteady trap). Run a warmup probe (2dk_warmup_test pattern) first.
-#   2. CFL: dt derives from max_velocity=7.0 (assumed, not realized). Verify realized
-#      |u|_max at k_f=8 stays <= 7.0 during warmup probe; raise max_velocity if not.
-#   3. Re LABEL: nominal Re=1000 keeps nu=1e-3; the FORCING-SCALE Reynolds number halves
-#      (L_f = 2pi/8). Comparisons to k_f=4 cells are at matched nu, NOT matched Re_f.
+# ✅ CERTIFIED 2026-08-03 by 2dk_kf8_probe (8 traj, 150 s from t=0):
+#   1. STATIONARITY: equilibrates by t~15-25 s; E flat 0.51-0.54 over 148 s (ratios at
+#      t=30/45/60/90 s within 0.96-1.01 of stationary mean) => the inherited 45 s warmup
+#      is conservative and correct. No condensate/quasisteady drift observed.
+#   2. CFL: stationary |u|_max = 3.0-3.6 vs the assumed max_velocity=7.0 that sizes dt
+#      (the 7.27 reading is the t=0 IC, scaled to 7.0 by construction) => dt UNCHANGED,
+#      so frame dt matches every other corpus and k*/t80 scales stay comparable.
+#   3. Re LABEL: nominal Re=1000 keeps nu=1e-3, but this is a WEAKER, more enstrophy-
+#      dominated flow than k_f=4: E 0.53 vs 0.97, Z 16.1 vs 9.5, u_rms 1.03 vs 1.39,
+#      forcing-scale Re 809 vs 2190. This cell changes flux topology AND effective Re;
+#      a matched-Re_f variant would need the forcing amplitude raised ~2.7x, not just k_f.
 defaults:
   - /base_config
   - _self_
