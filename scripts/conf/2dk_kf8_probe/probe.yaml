@@ -1,0 +1,21 @@
+# @package _global_
+# k_f=8 STATIONARITY + CFL probe: 8 traj from t=0 (no warmup discarded), 150 s recorded,
+# coarse cadence. Answers: when do energy/enstrophy plateau (is 45 s enough at k_f=8?),
+# and what is the realized |u|_max vs the assumed max_velocity=7.0 that sets dt.
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_kf8_probe
+seed: 1700290000
+num_samples: 8
+batch_size: 8
+grid_size: 512
+subsample: 8
+Re: 1000
+peak_wavenumber: 8
+time_warmup: 0.0
+time: 150.0
+record_every_steps: 64
+save_ic512: false
+downsample_method: spectral

@@ -1,0 +1,19 @@
+# @package _global_
+# 2dk_128_tr1k — 128^2 MIRROR of the 64^2 sub1M training corpus.
+# IDENTICAL seeds/warmup/length to 2dk_25M_tr1k partition p0 (the sub1M train set);
+# only subsample changes 8 -> 4, so the 64^2 data is the EXACT spectral truncation of
+# this (truncation composes). 128 traj x (7843-16) = 1.00M windows. ~131 GB.
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_128_tr1k
+seed: 1700000000          # == 25M corpus train seed base: same 128 trajectories
+num_samples: 128
+batch_size: 16
+grid_size: 512
+subsample: 4              # 512/4 = 128
+Re: 1000
+time_warmup: 45.0
+time: 55.0
+downsample_method: spectral
