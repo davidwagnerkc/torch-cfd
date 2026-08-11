@@ -1,0 +1,19 @@
+# @package _global_
+# SMOKE TEST for the multi-writer. Tiny warmup/time so it runs in ~20 s; every other setting
+# matches the real generation so the code path is the same one that will be used for real.
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_smoke
+seed: 1700000000
+num_samples: 2
+batch_size: 2
+grid_size: 512
+subsample: 8
+Re: 1000
+time_warmup: 0.5
+time: 1.0
+record_every_steps: 8
+save_ic512: false
+downsample_method: spectral

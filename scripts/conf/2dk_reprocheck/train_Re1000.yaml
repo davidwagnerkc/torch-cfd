@@ -1,0 +1,26 @@
+# @package _global_
+# DETERMINISM CHECK, not a corpus. Rank 0 only (16 traj), spectral downsampling, and otherwise
+# byte-identical settings to the 2dk_25M_tr1k generation that produced our standard spectral
+# corpus (seed 1700000000, grid 512, subsample 8, warmup 45, time 55, record_every_steps 8).
+#
+# It answers TWO questions at once:
+#  1. does a regeneration today reproduce the existing spectral data? -- i.e. can the existing
+#     corpus serve as the CONTROL arm for the downsampling comparison, or must it be re-made?
+#  2. is the 512^2 solve deterministic? -- if yes, each downsampling operator can be generated
+#     as an independent job (same flows guaranteed). If no, they MUST come from one shared
+#     solve, which would mean modifying the writer.
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_reprocheck
+seed: 1700000000
+num_samples: 16
+batch_size: 16
+grid_size: 512
+subsample: 8
+Re: 1000
+time_warmup: 45.0
+time: 55.0
+record_every_steps: 8
+downsample_method: spectral

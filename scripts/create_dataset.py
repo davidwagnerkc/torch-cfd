@@ -67,6 +67,13 @@ class DataGenConfig:
     downsample_method: str = "bilinear"  # bilinear | spectral | box | gaussian | macface[_collocated]
     # all but macface* are divergence-free; only spectral is alias-free.
     # box/gaussian/spectral = the three canonical LES filters (top-hat / Gaussian / sharp cutoff).
+    # MULTI-WRITER (separate code path, see generate_multi/_write_multi). When non-empty, ONE
+    # 512^2 solve feeds every listed operator and each gets its own dataset dir
+    # "<dataset_name>_<method>". The downsample costs 0.2% of a shard (measured), so this is a
+    # ~4x saving over running the operators as separate jobs -- and it guarantees they see
+    # literally the same field rather than relying on solver determinism.
+    # Empty (default) -> the original single-writer path, unchanged.
+    downsample_methods: tuple = ()
     diam: str = "2*torch.pi"
     max_velocity: float = 7.0
     scale: float = 1.0
@@ -424,6 +431,78 @@ def generate(resolved: ResolvedConfig, rank: int):
         yield t_idx, downsample(vort_hat, nse, ns=resolved.ns)
 
 
+def generate_multi(resolved: ResolvedConfig, rank: int, methods):
+    """Like `generate`, but yields (snapshot_index, {method: velocity}) from ONE solve.
+
+    Deliberately a separate function from `generate` rather than a generalisation of it: the
+    single-operator path is what produced every existing corpus, and it stays byte-identical.
+    """
+    cfg = resolved.cfg
+    dt = resolved.dt
+    random_state = cfg.seed + rank * cfg.batch_size
+    print(
+        f"Rank {rank}: seeds {random_state}..{random_state + cfg.batch_size - 1} | "
+        f"dt={dt:.4e} | snapshot_dt={resolved.snapshot_dt:.4e} | "
+        f"{resolved.warmup_steps} warmup + {resolved.num_snapshots * cfg.record_every_steps} "
+        f"traj steps -> {resolved.num_snapshots} snapshots | shape={resolved.shape} | "
+        f"methods={list(methods)}",
+        flush=True,
+    )
+    nse, vort_hat = build_simulation(resolved, rank)
+    fns = {m: DOWNSAMPLERS[m] for m in methods}
+
+    for _ in tqdm(range(resolved.warmup_steps), disable=cfg.no_tqdm, desc="warmup"):
+        vort_hat = nse(vort_hat, dt).clone()
+
+    if cfg.save_ic512:   # one shared post-warmup 512^2 IC (identical for every method)
+        ic = DOWNSAMPLERS["spectral"](vort_hat, nse, ns=cfg.grid_size).detach().cpu().numpy()
+        for m in methods:
+            ic_dir = Path(cfg.out_dir) / f"{cfg.dataset_name}_{m}" / cfg.split / "ic512"
+            ic_dir.mkdir(parents=True, exist_ok=True)
+            np.save(ic_dir / f"{rank}-Re{int(cfg.Re)}-ic512-{cfg.batch_size}-2-"
+                             f"{cfg.grid_size}-{cfg.grid_size}.npy", ic)
+
+    for t_idx in tqdm(range(resolved.num_snapshots), disable=cfg.no_tqdm, desc="trajectory"):
+        for _ in range(cfg.record_every_steps):
+            vort_hat = nse(vort_hat, dt).clone()
+        yield t_idx, {m: fn(vort_hat, nse, ns=resolved.ns) for m, fn in fns.items()}
+
+
+def _multi_shard_path(resolved: ResolvedConfig, rank: int, method: str) -> Path:
+    cfg = resolved.cfg
+    N, T, C, H, W = resolved.shape
+    return (Path(cfg.out_dir) / f"{cfg.dataset_name}_{method}" / cfg.split
+            / f"{rank}-Re{int(cfg.Re)}-ds-{N}-{T}-{C}-{H}-{W}.npy")
+
+
+def _write_multi(resolved: ResolvedConfig, ranks, methods, force_rerun: bool):
+    """Multi-operator writer. One memmap per (rank, method); all fed from one solve."""
+    cfg = resolved.cfg
+    targets = {(r, m): _multi_shard_path(resolved, r, m) for r in ranks for m in methods}
+    existing = [p for p in targets.values() if p.exists()]
+    if existing and not force_rerun:
+        listing = "\n".join(f"  {p}" for p in existing)
+        raise SystemExit(f"Refusing to overwrite {len(existing)} existing shard(s):\n{listing}\n"
+                         f"Pass force_rerun=true to overwrite.")
+    for rank in ranks:
+        mms = {}
+        for m in methods:
+            path = targets[(rank, m)]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            mms[m] = np.memmap(path, mode="write", dtype=np.float32, shape=resolved.shape)
+        for t_idx, us in generate_multi(resolved, rank, methods):
+            for m, u in us.items():
+                mms[m][:, t_idx] = u.cpu().numpy()
+        for m in methods:
+            mms[m].flush()
+            del mms[m]
+            meta = shard_metadata(resolved, rank)
+            meta["config"]["downsample_method"] = m       # record the ACTUAL operator per shard
+            meta["multi_writer"] = {"methods": list(methods), "shared_solve": True}
+            targets[(rank, m)].with_suffix(".json").write_text(json.dumps(meta, indent=2))
+            print(f"Wrote shard {targets[(rank, m)]}", flush=True)
+
+
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     device = torch.device(
@@ -482,6 +561,13 @@ def main(cfg: DictConfig) -> None:
         f"Split '{cfg.split}': {num_batches} shard(s) of {cfg.batch_size} samples | "
         f"generating rank(s) {ranks} on {device}"
     )
+
+    methods = tuple(cfg.get("downsample_methods", ()) or ())
+    if methods:
+        for m in methods:
+            assert m in DOWNSAMPLERS, f"unknown downsample method {m!r}"
+        _write_multi(resolved, ranks, methods, cfg.force_rerun)
+        return
 
     for rank, path in zip(ranks, targets):
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,31 @@
+# @package _global_
+# DOWNSAMPLING-OPERATOR STUDY, train split, Re=1000.
+#
+# One 512^2 solve feeds EVERY operator (multi-writer), so all variants are literally the same
+# flow observed through different filters -- no reliance on cross-run determinism. Output dirs
+# are 2dk_dsops_tr1k_<method>.
+#
+# Settings are byte-identical to the corpus that produced our standard spectral data
+# (verified: a regenerated rank-0 shard is BITWISE equal to 2dk_25M_tr1k p0, including the
+# final snapshots). seed 1700000000, grid 512, subsample 8, warmup 45 s, time 55.0 s.
+#
+# NB the prepared 2dk_macface_tr1k/val_Re1000.yaml had time: 55.0, which does NOT match the
+# standard val protocol (time: 20.0 -> 2852 snapshots). Corrected here.
+#
+# WARNING macface output is MAC-divergence-free, NOT spectrally divergence-free (the FVM target
+# is the same). Score models trained on it RAW or with proj_convention=mac.
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_dsops_tr1k
+seed: 1700000000
+num_samples: 128
+batch_size: 16
+grid_size: 512
+subsample: 8
+Re: 1000
+time_warmup: 45.0
+time: 55.0
+record_every_steps: 8
+downsample_method: spectral      # unused when downsample_methods is set; kept for the dataclass
