@@ -455,7 +455,8 @@ def generate_multi(resolved: ResolvedConfig, rank: int, methods):
         vort_hat = nse(vort_hat, dt).clone()
 
     if cfg.save_ic512:   # one shared post-warmup 512^2 IC (identical for every method)
-        ic = DOWNSAMPLERS["spectral"](vort_hat, nse, ns=cfg.grid_size).detach().cpu().numpy()
+        torch.compiler.cudagraph_mark_step_begin()
+        ic = DOWNSAMPLERS["spectral"](vort_hat, nse, ns=cfg.grid_size).clone().detach().cpu().numpy()
         for m in methods:
             ic_dir = Path(cfg.out_dir) / f"{cfg.dataset_name}_{m}" / cfg.split / "ic512"
             ic_dir.mkdir(parents=True, exist_ok=True)
@@ -465,7 +466,12 @@ def generate_multi(resolved: ResolvedConfig, rank: int, methods):
     for t_idx in tqdm(range(resolved.num_snapshots), disable=cfg.no_tqdm, desc="trajectory"):
         for _ in range(cfg.record_every_steps):
             vort_hat = nse(vort_hat, dt).clone()
-        yield t_idx, {m: fn(vort_hat, nse, ns=resolved.ns) for m, fn in fns.items()}
+        # .clone() is REQUIRED: _downsample_spectral is torch.compile(reduce-overhead), whose
+        # CUDA-graph output buffer is reused on the next invocation. Holding several operators'
+        # outputs live at once (and calling spectral at two different ns) otherwise raises
+        # "accessing tensor output of CUDAGraphs that has been overwritten".
+        torch.compiler.cudagraph_mark_step_begin()
+        yield t_idx, {m: fn(vort_hat, nse, ns=resolved.ns).clone() for m, fn in fns.items()}
 
 
 def _multi_shard_path(resolved: ResolvedConfig, rank: int, method: str) -> Path:
