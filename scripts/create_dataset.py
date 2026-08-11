@@ -219,6 +219,26 @@ def _downsample_bilinear(vort_hat, nse, ns):
     return _velocity_from_vorticity(omega)
 
 
+def _downsample_bilinear_aa(vort_hat, nse, ns):
+    """Bilinear with ANTIALIASING: F.interpolate(..., antialias=True) on vorticity, velocity
+    reconstructed from it (divergence-free, like the other vorticity-side operators).
+
+    The plain `bilinear` operator is NOT a low-pass at all for large factors: torch's linear
+    kernel is 2 SOURCE pixels wide regardless of scale, so 512->64 reads 4 of every 64 pixels.
+    Measured transfer 0.982 at k=31 (vs box 0.660) and 3.8x box's aliasing -- it is point
+    sampling with a 2x2 smear. antialias=True widens the kernel to 2r source pixels (measured:
+    16 for r=8), which is a genuine low-pass at the TARGET Nyquist. This is what PIL/ImageMagick
+    "resize" does and what a reader assumes "bilinear downsampling" means.
+
+    NB it is not an independent kernel: a triangle of width 2r is two boxes of width r
+    convolved, so its transfer is the box Dirichlet kernel SQUARED (verified to 0.1%). It is
+    therefore a sharper low-pass than `box`, sitting between `box` and `spectral`.
+    """
+    omega = fft.irfft2(vort_hat)
+    omega = F.interpolate(omega, size=(ns, ns), mode="bilinear", antialias=True)
+    return _velocity_from_vorticity(omega)
+
+
 def _downsample_box(vort_hat, nse, ns):
     """Top-hat (box) filter: r x r block average of VORTICITY, then velocity reconstructed from
     the coarse vorticity (so the saved field is divergence-free, like `bilinear`/`spectral`).
@@ -347,7 +367,8 @@ def _downsample_macface_collocated(vort_hat, nse, ns):
 
 DOWNSAMPLERS = {"bilinear": _downsample_bilinear, "spectral": _downsample_spectral,
                 "macface": _downsample_macface, "macface_collocated": _downsample_macface_collocated,
-                "box": _downsample_box, "gaussian": _downsample_gaussian}
+                "box": _downsample_box, "gaussian": _downsample_gaussian,
+                "bilinear_aa": _downsample_bilinear_aa}
 
 
 def build_simulation(resolved: ResolvedConfig, rank: int):
