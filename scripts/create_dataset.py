@@ -19,6 +19,7 @@ Parallel vs sequential:
 from dataclasses import dataclass
 from pathlib import Path
 import json
+import math
 import os
 
 import numpy as np
@@ -63,7 +64,9 @@ class DataGenConfig:
     Re: float = 1000.0
     grid_size: int = 512             # simulation grid (n x n)
     subsample: int = 8               # saved grid = grid_size // subsample
-    downsample_method: str = "bilinear"  # bilinear | spectral -- both divergence-free; spectral also alias-free
+    downsample_method: str = "bilinear"  # bilinear | spectral | box | gaussian | macface[_collocated]
+    # all but macface* are divergence-free; only spectral is alias-free.
+    # box/gaussian/spectral = the three canonical LES filters (top-hat / Gaussian / sharp cutoff).
     diam: str = "2*torch.pi"
     max_velocity: float = 7.0
     scale: float = 1.0
@@ -209,6 +212,50 @@ def _downsample_bilinear(vort_hat, nse, ns):
     return _velocity_from_vorticity(omega)
 
 
+def _downsample_box(vort_hat, nse, ns):
+    """Top-hat (box) filter: r x r block average of VORTICITY, then velocity reconstructed from
+    the coarse vorticity (so the saved field is divergence-free, like `bilinear`/`spectral`).
+
+    One of the three canonical LES filters (sharp spectral cutoff / Gaussian / top-hat; Pope
+    ch. 13). Also exactly the finite-volume cell average and what most CV pipelines mean by
+    "downsample". ISOTROPIC -- it averages equally on both axes -- which is the contrast with
+    `macface`, whose box average acts on the TANGENTIAL axis only and decimates the normal one.
+    box-vs-macface at matched attenuation therefore isolates ANISOTROPY.
+
+    Block-average-then-decimate is exactly "box filter then subsample", so this aliases (unlike
+    `spectral`); that is the point of having it.
+    """
+    omega = fft.irfft2(vort_hat)
+    n = omega.shape[-1]
+    r = n // ns
+    omega = omega.reshape(*omega.shape[:-2], ns, r, ns, r).mean(dim=(-3, -1))
+    return _velocity_from_vorticity(omega)
+
+
+def _downsample_gaussian(vort_hat, nse, ns):
+    """Gaussian filter then decimate, on VORTICITY, velocity reconstructed as above.
+
+    The second of the canonical LES filters. Width is set by the standard second-moment match
+    to a box filter of the same nominal width Delta = r cells: sigma = r / sqrt(12). That makes
+    `gaussian` and `box` directly comparable -- same nominal filter width, different kernel
+    shape (smooth roll-off vs sinc ringing) -- rather than introducing a free parameter.
+
+    Applied in Fourier on the FINE grid: for sigma in units of grid cells on an N-point periodic
+    domain the transfer is exp(-2 pi^2 sigma^2 |k|^2 / N^2). Decimation afterwards still folds
+    whatever survives above the coarse Nyquist, so this aliases too -- less than box, more than
+    spectral.
+    """
+    n = vort_hat.shape[-2]
+    r = n // ns
+    sigma = r / math.sqrt(12.0)
+    kr = fft.fftfreq(n, d=1.0 / n, device=vort_hat.device).view(1, 1, -1, 1)
+    kc = fft.rfftfreq(n, d=1.0 / n, device=vort_hat.device).view(1, 1, 1, -1)
+    H = torch.exp(-2.0 * math.pi ** 2 * sigma ** 2 * (kr ** 2 + kc ** 2) / n ** 2)
+    omega = fft.irfft2(vort_hat * H, s=(n, n))
+    omega = omega[..., ::r, ::r]
+    return _velocity_from_vorticity(omega)
+
+
 def _truncate_to_grid(field_hat, ns):
     """rfft2 spectrum on an n x n grid -> real field on an ns x ns grid, keeping
     only |k| < ns/2. Rescaled by (ns/n)^2 for the smaller inverse-FFT norm.
@@ -292,7 +339,8 @@ def _downsample_macface_collocated(vort_hat, nse, ns):
 
 
 DOWNSAMPLERS = {"bilinear": _downsample_bilinear, "spectral": _downsample_spectral,
-                "macface": _downsample_macface, "macface_collocated": _downsample_macface_collocated}
+                "macface": _downsample_macface, "macface_collocated": _downsample_macface_collocated,
+                "box": _downsample_box, "gaussian": _downsample_gaussian}
 
 
 def build_simulation(resolved: ResolvedConfig, rank: int):
