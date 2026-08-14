@@ -64,7 +64,7 @@ class DataGenConfig:
     Re: float = 1000.0
     grid_size: int = 512             # simulation grid (n x n)
     subsample: int = 8               # saved grid = grid_size // subsample
-    downsample_method: str = "bilinear"  # bilinear | spectral | box | gaussian | macface[_collocated]
+    downsample_method: str = "bilinear"  # bilinear | spectral | box | gaussian | macface[_collocated|_aa]
     # all but macface* are divergence-free; only spectral is alias-free.
     # box/gaussian/spectral = the three canonical LES filters (top-hat / Gaussian / sharp cutoff).
     # MULTI-WRITER (separate code path, see generate_multi/_write_multi). When non-empty, ONE
@@ -361,12 +361,49 @@ def _downsample_macface(vort_hat, nse, ns, stagger=True):
     return _macface(u, n // ns)
 
 
+def _lowpass_to_coarse_box(field_hat, n, ns):
+    """Zero every mode outside the coarse grid's box, KEEPING the fine grid. Same convention
+    as `_truncate_to_grid` (strict <, so the Nyquist band is dropped) so that the anti-aliased
+    arm and the spectral arm agree on exactly which modes survive."""
+    half = ns // 2
+    kr = fft.fftfreq(n, d=1.0 / n, device=field_hat.device).view(1, 1, -1, 1)
+    kc = fft.rfftfreq(n, d=1.0 / n, device=field_hat.device).view(1, 1, 1, -1)
+    return field_hat * ((kr.abs() < half) & (kc.abs() < half))
+
+
+def _downsample_macface_aa(vort_hat, nse, ns):
+    """ANTI-ALIASED macface: ideal low-pass to the coarse box FIRST, then the identical
+    stagger + face-average.
+
+    ⚠ DIAGNOSTIC ARM, NOT A CANDIDATE CORPUS. Neither jax-cfd's FVM nor PDE-Refiner's
+    pipeline anti-aliases; no benchmark should ship this. Its only job is to split the two
+    effects that `macface` confounds:
+
+        spectral      vs  macface_aa   ->  tangential filter shape + anisotropy + MAC geometry
+        macface_aa    vs  macface      ->  aliased fold-in alone
+
+    It is also a falsification test of the dead-line/support hypothesis (DOWNSAMPLING.md 10):
+    band-limiting to the coarse box empties the Nyquist row/col, so this arm should score
+    census 4/4 like `spectral` while keeping macface's anisotropic top-hat and staggered
+    geometry. If support is what buys plain-base stability, this arm must be UNSTABLE. If it
+    trains stably, the hypothesis is wrong.
+    """
+    (u_hat, v_hat), _ = vorticity_to_velocity(nse.grid, vort_hat, (nse.kx, nse.ky))
+    n = vort_hat.shape[-2]
+    u_hat = _lowpass_to_coarse_box(u_hat, n, ns)
+    v_hat = _lowpass_to_coarse_box(v_hat, n, ns)
+    u_hat, v_hat = _to_mac_faces(u_hat, v_hat, n)
+    u = torch.cat([fft.irfft2(u_hat, s=(n, n)), fft.irfft2(v_hat, s=(n, n))], dim=1)
+    return _macface(u, n // ns)
+
+
 def _downsample_macface_collocated(vort_hat, nse, ns):
     return _downsample_macface(vort_hat, nse, ns, stagger=False)
 
 
 DOWNSAMPLERS = {"bilinear": _downsample_bilinear, "spectral": _downsample_spectral,
                 "macface": _downsample_macface, "macface_collocated": _downsample_macface_collocated,
+                "macface_aa": _downsample_macface_aa,
                 "box": _downsample_box, "gaussian": _downsample_gaussian,
                 "bilinear_aa": _downsample_bilinear_aa}
 
