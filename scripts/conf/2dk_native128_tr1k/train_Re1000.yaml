@@ -1,0 +1,25 @@
+# @package _global_
+# 2dk_native128_tr1k — the DNS run NATIVELY at 128^2 (not 512-truncated), stored at 128^2.
+# Same protocol as 2dk_128_tr1k train (seeds, warmup, length, snapshot cadence): dt scales
+# exactly 4x with dx, so record_every_steps 8 -> 2 reproduces snapshot_dt = 0.007012483601...
+# and 7843 frames. Same SEEDS but a different grid -> different IC draws/trajectories: the
+# comparison with the 512-parented corpus is statistical, not paired.
+# Twin-corpus experiment: what does 512-parent information buy a 64^2 surrogate?
+# NOTE the native solver's smooth dealias filter damps k>=43 to ~1e-5 relative energy —
+# comparable to the TRUE spectrum the 512-truncated corpus carries there (measured
+# 2026-08-17, 3 val frames); the 64^2 training band |k|<32 is complete in both.
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_native128_tr1k
+seed: 1700000000          # == 2dk_128_tr1k / 25M-corpus train seed base
+num_samples: 128
+batch_size: 16
+grid_size: 128
+subsample: 1              # native: saved grid == simulation grid
+record_every_steps: 2     # dt(128) = 4*dt(512) -> 2 steps/snapshot matches the corpus cadence
+Re: 1000
+time_warmup: 45.0
+time: 55.0
+downsample_method: spectral   # factor-1: identity (own-Nyquist already empty under dealias)

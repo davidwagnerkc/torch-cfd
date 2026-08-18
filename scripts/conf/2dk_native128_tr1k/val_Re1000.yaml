@@ -1,0 +1,17 @@
+# @package _global_
+# 2dk_native128_tr1k — native-128^2 val, protocol mirror of 2dk_128_tr1k/val (w45 val seed).
+defaults:
+  - /base_config
+  - _self_
+split: val
+dataset_name: 2dk_native128_tr1k
+seed: 1700010000          # == w45 val seed
+num_samples: 128
+batch_size: 16
+grid_size: 128
+subsample: 1
+record_every_steps: 2
+Re: 1000
+time_warmup: 45.0
+time: 20.0
+downsample_method: spectral
