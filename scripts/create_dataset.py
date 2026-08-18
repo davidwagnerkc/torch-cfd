@@ -129,7 +129,11 @@ def resolve_config(cfg: DictConfig, device: torch.device) -> ResolvedConfig:
     diam = eval(cfg.diam) if isinstance(cfg.diam, str) else cfg.diam
     viscosity = 1.0 / cfg.Re
     dx = diam / cfg.grid_size
+    # INVARIANT (David, 2026-08-18): dataset generation NEVER exceeds this dt — CFL 0.5
+    # (stable_time_step = 0.5*dx/max_velocity) is the standard convention. Larger steps
+    # are for benchmarking curiosity only and belong in bench scripts, never here.
     dt = stable_time_step(dx, float("inf"), cfg.max_velocity, viscosity=viscosity)
+    assert dt <= 0.5 * dx / cfg.max_velocity * (1 + 1e-9), "dataset dt must satisfy CFL <= 0.5"
 
     ns = cfg.grid_size // cfg.subsample
     warmup_steps = int(cfg.time_warmup / dt)
