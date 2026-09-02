@@ -1,0 +1,17 @@
+# @package _global_
+# 2dk_re125_w45 -- val split, Re=125. 45 s warmup (stationary, matches train), 20 s rollouts,
+# 128 traj (the standard 128-IC eval set), saved at 128^2 (subsample 4). Seed family 1700210000.
+defaults:
+  - /base_config
+  - _self_
+split: val
+dataset_name: 2dk_re125_w45
+seed: 1700210000
+num_samples: 128
+batch_size: 16
+grid_size: 512
+subsample: 4
+Re: 125
+time_warmup: 45.0
+time: 20.0
+downsample_method: spectral

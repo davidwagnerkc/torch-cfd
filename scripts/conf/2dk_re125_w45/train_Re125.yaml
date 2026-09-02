@@ -1,0 +1,22 @@
+# @package _global_
+# 2dk_re125_w45 -- train split, Re=125 (= Re1k / 2^3, the low-Re mirror of the Re8k anchor).
+# Standard w45 recipe (45 s warmup, 55 s trajectories, 512^2 alias-free spectral solver, spectral
+# downsample) but SAVED AT 128^2 (subsample 4, exactly as 2dk_128_tr1k) so the 64^2 training grid
+# is an exact on-the-fly spectral truncation (truncation composes) and a native-128 arm stays
+# possible. 128 traj x (7843-16) ~= 1.0M step-16 windows (the sub1M-sized partition).
+# Fresh seed family 1700200000 (w45 train 1700000000, w45 val 1700010000, extended_re 17001xxxxx,
+# native128 draw-2 1710000000 -- all disjoint).
+defaults:
+  - /base_config
+  - _self_
+split: train
+dataset_name: 2dk_re125_w45
+seed: 1700200000
+num_samples: 128
+batch_size: 16
+grid_size: 512
+subsample: 4              # 512/4 = 128
+Re: 125
+time_warmup: 45.0
+time: 55.0
+downsample_method: spectral
