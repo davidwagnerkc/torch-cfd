@@ -1,0 +1,22 @@
+# @package _global_
+# 2dk_re8k_ladder -- Re=8000 val-format TRUTH with the post-warm-up 512^2 states saved (ic512/), for the spectral
+# solver accuracy ladder (research: scripts/bench/solver_accuracy_ladder.py). The paper's Re8000 val
+# (2dk_spectral_w45/val/val_Re8000.pt, seed 1700013000) predates save_ic512 and a re-run cannot reproduce its
+# post-warm-up states (45 s of chaos), so this is a fresh draw of the SAME recipe: 512^2, 45 s warm-up, 20 s,
+# 128 traj, saved at 128^2 (subsample 4) so it can be scored at 128^2 and at 64^2 (spectral coarsening reproduces
+# the stored-64^2 corpus to ~1e-6). Seed family 1700213000: disjoint from every other corpus (w45 val 17000100xx /
+# 17000130xx, re125 17002100xx, test block 17000200xx).
+defaults:
+  - /base_config
+  - _self_
+split: val
+dataset_name: 2dk_re8k_ladder
+seed: 1700213000
+num_samples: 128
+batch_size: 16
+grid_size: 512
+subsample: 4
+Re: 8000
+time_warmup: 45.0
+time: 20.0
+downsample_method: spectral
