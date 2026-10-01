@@ -1,0 +1,28 @@
+# @package _global_
+# 2dk_spectral_w45 -- OFFICIAL TEST split, Re=1000. Identical in every respect to val_Re1000.yaml
+# (same solver, dt, warmup, length, cadence, downsampler) except split/seed/num_samples:
+# 1024 trajectories instead of 128, from a fresh disjoint seed family.
+#
+# Seed family 1700400000..1700401023. Verified disjoint (2026-10-01) from every seed range in
+# scripts/conf/** : nearest neighbours are 1700300000+16 (2dk_128test) below and 1710000000+128
+# (native128 draw 2) above. In particular it is NOT derived from the 3200 post-warmup ic512 states
+# of 2dk_25M_tr1k (seeds 1700000000+3200), which are the STARTS of the 25M training corpus -- every
+# model on the 25M ladder has seen those flows, so reusing them would leak train into test.
+#
+# 64 shards of 16; aggregated in groups of 8 into test_Re1000_p{0..7}.pt, each of which is
+# structurally identical to val_Re1000.pt (128, 2852, 2, 64, 64) so every existing loader works
+# on a partition unchanged.
+defaults:
+  - /base_config
+  - _self_
+split: test
+dataset_name: 2dk_spectral_w45
+seed: 1700400000
+num_samples: 1024
+batch_size: 16
+grid_size: 512
+subsample: 8
+Re: 1000
+time_warmup: 45.0
+time: 20.0
+downsample_method: spectral
